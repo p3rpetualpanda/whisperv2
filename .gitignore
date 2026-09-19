@@ -1,0 +1,19 @@
+node_modules/
+
+# SQLite database (created at runtime; store.js auto-creates the folder)
+data/
+
+# Environment variables (if you ever add secrets/API keys)
+.env
+
+# Logs
+npm-debug.log*
+*.log
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Editor folders
+.vscode/
+.idea/

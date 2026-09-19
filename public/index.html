@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Whisper</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <!-- Name prompt overlay -->
+  <div id="name-overlay" class="overlay">
+    <div class="overlay-card">
+      <h1>Whisper</h1>
+      <p>Enter a display name to start chatting</p>
+      <input id="name-input" type="text" maxlength="30" placeholder="Your name" autocomplete="off" />
+      <button id="name-submit">Join</button>
+    </div>
+  </div>
+
+  <div id="app" class="app hidden">
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <h2>Whisper</h2>
+        <span id="my-name" class="my-name"></span>
+      </div>
+
+      <section class="sidebar-section">
+        <div class="section-title">
+          <span>Rooms</span>
+          <button id="new-room-btn" title="Create room" class="icon-btn">+</button>
+        </div>
+        <ul id="room-list" class="room-list"></ul>
+      </section>
+
+      <section class="sidebar-section">
+        <div class="section-title"><span>Online</span></div>
+        <ul id="online-list" class="online-list"></ul>
+      </section>
+    </aside>
+
+    <!-- Chat pane -->
+    <main class="chat">
+      <header class="chat-header">
+        <h3 id="chat-title">Lobby</h3>
+        <span id="chat-subtitle" class="chat-subtitle"></span>
+        <button id="leave-btn" class="icon-btn leave-btn hidden" title="Leave room" aria-label="Leave room">✕</button>
+      </header>
+      <div id="messages" class="messages"></div>
+      <div id="typing" class="typing"></div>
+      <form id="composer" class="composer">
+        <input id="msg-input" type="text" maxlength="2000" placeholder="Type a message…" autocomplete="off" />
+        <button type="submit">Send</button>
+      </form>
+    </main>
+  </div>
+
+  <!-- New room modal -->
+  <div id="room-modal" class="overlay hidden">
+    <div class="overlay-card">
+      <h3>Create a room</h3>
+      <input id="room-name-input" type="text" maxlength="30" placeholder="Room name" autocomplete="off" />
+      <div class="modal-actions">
+        <button id="room-cancel" class="secondary">Cancel</button>
+        <button id="room-create">Create</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

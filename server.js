@@ -82,6 +82,11 @@ function ensureDmRoom(a, b, nameA, nameB) {
   if (!rooms.has(id)) rooms.set(id, { id, name: 'DM', kind: 'dm', members: new Set(), names: [nameA, nameB] });
   return id;
 }
+// DMs are private: only the two parties (recorded in room.names) may join or
+// resume them. Group rooms are open to anyone.
+function mayJoin(st, room) {
+  return room.kind !== 'dm' || (room.names || []).includes(st.name);
+}
 function onlineNames() {
   // STEP 14: presence comes from the shared store (in-memory or Redis).
   return presence.online();
@@ -270,7 +275,7 @@ function handleResume(st, p) {
   for (const roomId of roomIds) {
     if (roomId === LOBBY) continue;
     const room = rooms.get(roomId);
-    if (!room) continue;
+    if (!room || !mayJoin(st, room)) continue;
     // Re-attach this socket to the room (membership was lost on disconnect).
     if (!st.rooms.has(roomId)) {
       st.rooms.add(roomId);
@@ -300,9 +305,8 @@ function handleCreateRoom(st, p) {
 function handleJoinRoom(st, p) {
   const room = rooms.get(p.roomId);
   if (!room) return send(st, envelope('error', null, { error: 'Room not found' }));
-  // DMs are private: only the two parties (recorded in room.names) may join.
-  // This stops a user from joining someone else's DM by guessing its ID.
-  if (room.kind === 'dm' && !(room.names || []).includes(st.name)) {
+  // Stops a user from joining someone else's DM by guessing its ID.
+  if (!mayJoin(st, room)) {
     return send(st, envelope('error', null, { error: 'Not a member of this DM' }));
   }
   if (!st.rooms.has(room.id)) {
@@ -348,6 +352,7 @@ function handleDmOpen(st, p) {
 function handleMessage(st, p) {
   const room = rooms.get(p.roomId);
   if (!room) return send(st, envelope('error', null, { error: 'Room not found' }));
+  if (!st.rooms.has(room.id)) return send(st, envelope('error', null, { error: 'Not a member of this room' }));
   const text = String(p.text || '').trim().slice(0, 2000);
   if (!text) return;
   const msg = { id: ulid(), roomId: room.id, sender: st.name, text, ts: Date.now() };
@@ -357,7 +362,7 @@ function handleMessage(st, p) {
 
 function handleTyping(st, p) {
   const room = rooms.get(p.roomId);
-  if (!room) return;
+  if (!room || !st.rooms.has(room.id)) return;
   // STEP 11: typing is non-critical — dropped under backpressure
   sendToRoom(room.id, envelope('typing', room.id, { roomId: room.id, name: st.name, typing: !!p.typing }), false);
 }
@@ -366,6 +371,7 @@ function handleTyping(st, p) {
 function handleHistory(st, p) {
   const room = rooms.get(p.roomId);
   if (!room) return send(st, envelope('error', null, { error: 'Room not found' }));
+  if (!st.rooms.has(room.id)) return send(st, envelope('error', null, { error: 'Not a member of this room' }));
   const beforeId = String(p.beforeId || '');
   const msgs = beforeId
     ? store.messagesBefore(room.id, beforeId, PAGE_LIMIT)

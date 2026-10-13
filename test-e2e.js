@@ -230,6 +230,18 @@ const globalTimeout = setTimeout(() => {
   check('history-on-join includes seeded messages', histTexts.includes('hist-1') && histTexts.includes('hist-2'));
   check('history is oldest->newest', histTexts.indexOf('hist-1') < histTexts.indexOf('hist-2'));
 
+  // ---------- 10b. Access control: Carol is not in Alice/Bob's DM ----------
+  carol.send('message', { roomId: dmRoomId, text: 'intrude' });
+  const postErr = await carol.waitFor((e) => e.type === 'error');
+  check('non-member cannot post to DM', /Not a member/.test(postErr.payload.error));
+  carol.send('history', { roomId: dmRoomId });
+  const histErr = await carol.waitFor((e) => e.type === 'error' && e !== postErr);
+  check('non-member cannot read DM history', /Not a member/.test(histErr.payload.error));
+  carol.send('resume', { rooms: [dmRoomId], lastSeen: {} });
+  await carol.waitFor((e) => e.type === 'resumed');
+  const leaked = carol.queue.some((e) => e.type === 'message' && e.payload.msg.roomId === dmRoomId);
+  check('resume does not join a DM you are not in', !leaked);
+
   // ---------- 11. Resumable reconnect (STEP 8) ----------
   // Bob's last-seen id in the group room:
   const bobLastSeen = msg.payload.msg.id; // 'Hello Bob!'

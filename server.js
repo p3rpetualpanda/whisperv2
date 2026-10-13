@@ -17,7 +17,7 @@
 //   STEP 12 Per-socket token-bucket rate limiting
 //   STEP 13 Pub/sub fanout bus (pluggable: in-memory default, Redis optional)
 //   STEP 14 Presence in a shared store (in-memory default, Redis TTL optional)
-//   STEP 15 Durable fanout via Redis Streams (optional, FANOUT_MODE=streams)
+//   STEP 15 Fanout via Redis Streams (optional, FANOUT_MODE=streams)
 //   STEP 16 WebTransport (HTTP/3/QUIC) — documented future upgrade path
 
 const express = require('express');
@@ -151,9 +151,9 @@ function ensureRoomHandler(roomId) {
 function sendToRoom(roomId, env, critical = true) {
   ensureRoomHandler(roomId);
   // STEP 15: wait for the room's subscription to be established before
-  // publishing. For RedisStreamBus, subscribe() creates the stream
-  // (xgroupCreate MKSTREAM) while publish() uses NOMKSTREAM, so publishing
-  // first can race ahead of stream creation and drop the very first message.
+  // publishing. RedisStreamBus.subscribe() records the stream's current last
+  // entry id as its read position; publishing first would land the message
+  // before that position and this instance would never deliver it.
   Promise.resolve(bus.ready(roomId))
     .then(() => bus.publish(roomId, { env, critical }))
     .catch((e) => console.error('bus publish error', e));

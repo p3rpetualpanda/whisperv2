@@ -36,15 +36,15 @@ By default the app runs as a single process with an in-memory fan-out bus and pr
 # Redis Pub/Sub fan-out (guide step 13) + Redis presence (step 14)
 FANOUT_MODE=redis REDIS_URL=redis://localhost:6379 npm start
 
-# Durable fan-out via Redis Streams (guide step 15)
+# Fan-out via Redis Streams (guide step 15)
 FANOUT_MODE=streams REDIS_URL=redis://localhost:6379 npm start
 ```
 
-The `redis` npm package is only required when `FANOUT_MODE` is `redis` or `streams` (`npm i redis`). The in-memory default keeps local dev dependency-free, per the build guide's advice not to add a Redis dependency until you've measured that one process can't handle the load.
+The `redis` npm package (node-redis v4 or later) is only required when `FANOUT_MODE` is `redis` or `streams` (`npm i redis`). The in-memory default keeps local dev dependency-free, per the build guide's advice not to add a Redis dependency until you've measured that one process can't handle the load.
 
 ### Tests
 
-An end-to-end test (two simulated clients over the real WebSocket protocol) covers auth-at-upgrade, presence, group rooms, DMs, typing, history-on-join, resumable replay, rate limiting, and SQLite persistence. It starts its own server on a scratch port with a temp database, so no manual setup is needed:
+An end-to-end test (two simulated clients over the real WebSocket protocol) covers auth-at-upgrade, presence, group rooms, DMs, DM access control, typing, history-on-join, resumable replay, rate limiting, and SQLite persistence. `test-bus.js` checks the Redis Streams bus against a fake Redis client (two instances must both receive every message); the Redis modes have not been run against a real Redis server. It starts its own server on a scratch port with a temp database, so no manual setup is needed:
 
 ```bash
 npm test
@@ -93,10 +93,10 @@ whisperv2/
 
 Room fan-out and online presence are abstracted behind two small interfaces so the transport can be swapped without touching the protocol:
 
-- **`lib/bus.js`** — a per-room pub/sub bus. `MemoryBus` (default) dispatches in-process; `RedisBus` uses Redis Pub/Sub (one channel per room); `RedisStreamBus` uses Redis Streams with a consumer group for durable, replayable fan-out.
+- **`lib/bus.js`** — a per-room pub/sub bus. `MemoryBus` (default) dispatches in-process; `RedisBus` uses Redis Pub/Sub (one channel per room); `RedisStreamBus` uses Redis Streams with plain `XREAD` (no consumer groups, so every instance reads every entry), capped with `MAXLEN ~ 1000`, on a separate blocking-read connection. A restarted instance starts from the newest entry; users catch up from SQLite via `resume`.
 - **`lib/presence.js`** — a TTL presence store. `MemoryPresence` (default) tracks last-seen timestamps in-process; `RedisPresence` writes one key per user with a ~30s TTL renewed on each heartbeat, so any instance can answer "who's online".
 
-Both are selected via `FANOUT_MODE` (`memory` | `redis` | `streams`) and `REDIS_URL`. The `redis` package is lazy-required only when a Redis-backed mode is chosen, so the default path stays zero-dependency. This is the guide's "only if needed" layer: it's wired and tested, but off by default.
+Both are selected via `FANOUT_MODE` (`memory` | `redis` | `streams`) and `REDIS_URL`. The `redis` package is lazy-required only when a Redis-backed mode is chosen, so the default path stays zero-dependency. This is the guide's "only if needed" layer: it's wired up and checked offline, but off by default.
 
 ### WebTransport (guide step 16)
 
@@ -114,6 +114,7 @@ WebTransport (HTTP/3/QUIC, multiple independent streams, no head-of-line blockin
 - Message text is rendered with `textContent` (no `innerHTML`), so user input is XSS-safe.
 - Names and messages are length-capped server-side (30 / 2000 chars).
 - The WebSocket upgrade rejects unknown origins and missing/invalid session tokens.
+- Posting, reading history and typing require membership of the room. DMs can only be joined or resumed by their two parties (checked by display name, so two users sharing a name can still collide; see limitations).
 - Messages persist to SQLite across restarts; in-memory room membership is re-derived on `resume`.
 
 ## Roadmap
@@ -124,4 +125,4 @@ See [ROADMAP.md](./ROADMAP.md) for planned future additions (accounts, UX polish
 
 - No accounts yet — identity is a display name + session token; two users with the same name can still collide in DMs.
 - Room membership is in-memory and re-derived on reconnect; message history is durable.
-- Single-node by default — the Redis fan-out/presence layers (guide steps 13–15) are wired and tested but off unless `FANOUT_MODE` is set, keeping local dev dependency-free.
+- Single-node by default — the Redis fan-out/presence layers (guide steps 13–15) are wired up and checked offline, but not yet run against a real Redis server, and off unless `FANOUT_MODE` is set, keeping local dev dependency-free.

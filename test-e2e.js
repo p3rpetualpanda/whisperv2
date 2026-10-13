@@ -250,16 +250,19 @@ const globalTimeout = setTimeout(() => {
   // Alice sends two more while Bob is away.
   alice.send('message', { roomId, text: 'away-1' });
   alice.send('message', { roomId, text: 'away-2' });
+  alice.send('message', { roomId: dmRoomId, text: 'dm-away' });
   await sleep(150);
 
   // Bob reconnects with the same session token and resumes.
   const bob2 = await new Client(sb.token).connect();
-  bob2.send('resume', { rooms: [roomId], lastSeen: { [roomId]: bobLastSeen } });
+  bob2.send('resume', { rooms: [roomId, dmRoomId], lastSeen: { [roomId]: bobLastSeen, [dmRoomId]: dm2.payload.msg.id } });
   const resumed = await bob2.waitFor((e) => e.type === 'resumed');
   check('resume reports replayed count', resumed.payload.count >= 2);
   // Verify the replayed messages are the ones sent while away.
   const replayed = bob2.queue.filter((e) => e.type === 'message' && e.payload.msg.roomId === roomId).map((e) => e.payload.msg.text);
   check('resume replayed missed messages', replayed.includes('away-1') && replayed.includes('away-2'));
+  const replayedDm = bob2.queue.filter((e) => e.type === 'message' && e.payload.msg.roomId === dmRoomId).map((e) => e.payload.msg.text);
+  check('DM party can resume into their own DM', replayedDm.length === 1 && replayedDm[0] === 'dm-away');
 
   // ---------- 12. Rate limiting (STEP 12) ----------
   const rl = await new Client(sa.token).connect();

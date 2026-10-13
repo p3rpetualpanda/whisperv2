@@ -1,5 +1,7 @@
 # Whisper v2
 
+![CI](https://github.com/p3rpetualpanda/whisperv2/actions/workflows/ci.yml/badge.svg)
+
 A real-time instant messaging web app built on **raw WebSockets** (the `ws` library) instead of Socket.IO. Browser-based, no build step — just `npm install` and `npm start`.
 
 This is a ground-up rebuild of the original `whisper` app, following the 16-step build guide in `instant-messaging-app-build-guide.txt`. It keeps the same UX (display-name join, group rooms, 1-on-1 DMs, typing, presence) but replaces the Socket.IO transport with a hand-rolled WebSocket protocol and adds the reliability features the guide calls out: auth at upgrade, origin checking, heartbeats, rate limiting, backpressure, SQLite persistence, resumable reconnection, and history pagination.

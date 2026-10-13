@@ -1,7 +1,7 @@
 'use strict';
 
 // Whisper v2 — real-time instant messaging on RAW WebSockets (no Socket.IO).
-// Built step-by-step per instant-messaging-app-build-guide.txt.
+// Built in 16 ordered steps (README "Build order"); STEP n comments mark each one.
 //
 //   STEP 1  WebSocket server (ws) — bare connection, echo-capable
 //   STEP 2  Message envelope { id, type, room, payload, ts } + ULID ids

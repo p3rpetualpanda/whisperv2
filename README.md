@@ -4,7 +4,7 @@
 
 A real-time instant messaging web app built on **raw WebSockets** (the `ws` library) instead of Socket.IO. Browser-based, no build step — just `npm install` and `npm start`.
 
-This is a ground-up rebuild of the original `whisper` app, following the 16-step build guide in `instant-messaging-app-build-guide.txt`. It keeps the same UX (display-name join, group rooms, 1-on-1 DMs, typing, presence) but replaces the Socket.IO transport with a hand-rolled WebSocket protocol and adds the reliability features the guide calls out: auth at upgrade, origin checking, heartbeats, rate limiting, backpressure, SQLite persistence, resumable reconnection, and history pagination.
+This is a ground-up rebuild of the original `whisper` app, built in 16 ordered steps (see [Build order](#build-order)). It keeps the same UX (display-name join, group rooms, 1-on-1 DMs, typing, presence) but replaces the Socket.IO transport with a hand-rolled WebSocket protocol and adds the reliability features Socket.IO used to provide or hide: auth at upgrade, origin checking, heartbeats, rate limiting, backpressure, SQLite persistence, resumable reconnection, and history pagination.
 
 ## Features
 
@@ -35,14 +35,14 @@ Set a custom port with `PORT=8080 npm start`.
 By default the app runs as a single process with an in-memory fan-out bus and presence store — zero extra dependencies. To run multiple server instances behind a load balancer, switch the fan-out and presence layers to Redis:
 
 ```bash
-# Redis Pub/Sub fan-out (guide step 13) + Redis presence (step 14)
+# Redis Pub/Sub fan-out (step 13) + Redis presence (step 14)
 FANOUT_MODE=redis REDIS_URL=redis://localhost:6379 npm start
 
-# Fan-out via Redis Streams (guide step 15)
+# Fan-out via Redis Streams (step 15)
 FANOUT_MODE=streams REDIS_URL=redis://localhost:6379 npm start
 ```
 
-The `redis` npm package (node-redis v4 or later) is only required when `FANOUT_MODE` is `redis` or `streams` (`npm i redis`). The in-memory default keeps local dev dependency-free, per the build guide's advice not to add a Redis dependency until you've measured that one process can't handle the load.
+The `redis` npm package (node-redis v4 or later) is only required when `FANOUT_MODE` is `redis` or `streams` (`npm i redis`). The in-memory default keeps local dev dependency-free, deliberately: there's no point adding a Redis dependency until you've measured that one process can't handle the load.
 
 ### Tests
 
@@ -51,6 +51,29 @@ An end-to-end test (two simulated clients over the real WebSocket protocol) cove
 ```bash
 npm test
 ```
+
+## Build order
+
+Built in this order, each step working before the next (the step numbers also appear as `STEP n` comments in the code). Core transport and connection lifecycle came first; scaling came last, and only behind a switch.
+
+| Step | What | Where |
+|---|---|---|
+| 1 | WebSocket server (`ws`, `noServer` mode on the HTTP upgrade) | `server.js` |
+| 2 | Message envelope `{ id, type, room, payload, ts }` with ULID ids | `server.js`, `lib/ulid.js` |
+| 3 | Routing by `type` + server-side room registry | `server.js` |
+| 4 | Auth during the HTTP upgrade (session token), rejected outright if invalid | `server.js` |
+| 5 | Native ping/pong heartbeats; terminate after missed pongs | `server.js` |
+| 6 | Origin check in the upgrade handler | `server.js` |
+| 7 | Client reconnection with exponential backoff + jitter | `public/app.js` |
+| 8 | Resumable reconnect: replay messages after each room's last-seen id | `server.js`, `public/app.js` |
+| 9 | SQLite message store (`node:sqlite`, WAL, index on `(room_id, ts)`) | `lib/store.js` |
+| 10 | History on join + cursor pagination | `server.js`, `lib/store.js` |
+| 11 | Backpressure via `bufferedAmount` (drop typing, drop slow clients) | `server.js` |
+| 12 | Per-connection token-bucket rate limiting | `lib/rate-limit.js` |
+| 13 | Pluggable pub/sub fan-out bus (in-memory default, Redis Pub/Sub optional) | `lib/bus.js` |
+| 14 | Presence in a shared store (in-memory default, Redis TTL keys optional) | `lib/presence.js` |
+| 15 | Fan-out via Redis Streams (optional) | `lib/bus.js` |
+| 16 | WebTransport (HTTP/3/QUIC): documented future path, not built | — |
 
 ## Architecture
 
@@ -91,20 +114,20 @@ whisperv2/
   - `dm` — auto-created per user pair (keyed by sorted session IDs); both parties are added when either opens it
 - **Persistence** — messages are written to SQLite (`data/whisper.db`, WAL mode) with an index on `(room_id, ts)`. History is served newest-first with cursor pagination.
 
-### Horizontal scaling (guide steps 13–15)
+### Horizontal scaling (steps 13–15)
 
 Room fan-out and online presence are abstracted behind two small interfaces so the transport can be swapped without touching the protocol:
 
 - **`lib/bus.js`** — a per-room pub/sub bus. `MemoryBus` (default) dispatches in-process; `RedisBus` uses Redis Pub/Sub (one channel per room); `RedisStreamBus` uses Redis Streams with plain `XREAD` (no consumer groups, so every instance reads every entry), capped with `MAXLEN ~ 1000`, on a separate blocking-read connection. A restarted instance starts from the newest entry; users catch up from SQLite via `resume`.
 - **`lib/presence.js`** — a TTL presence store. `MemoryPresence` (default) tracks last-seen timestamps in-process; `RedisPresence` writes one key per user with a ~30s TTL renewed on each heartbeat, so any instance can answer "who's online".
 
-Both are selected via `FANOUT_MODE` (`memory` | `redis` | `streams`) and `REDIS_URL`. The `redis` package is lazy-required only when a Redis-backed mode is chosen, so the default path stays zero-dependency. This is the guide's "only if needed" layer: it's wired up and checked offline, but off by default.
+Both are selected via `FANOUT_MODE` (`memory` | `redis` | `streams`) and `REDIS_URL`. The `redis` package is lazy-required only when a Redis-backed mode is chosen, so the default path stays zero-dependency. It's an "only if needed" layer: wired up and checked offline, but off by default.
 
-### WebTransport (guide step 16)
+### WebTransport (step 16)
 
-WebTransport (HTTP/3/QUIC, multiple independent streams, no head-of-line blocking) is the documented future upgrade path for the transport. It is **not implemented** — the guide explicitly treats it as a future option rather than a v1 requirement. The envelope protocol and bus/presence abstractions are transport-agnostic, so a WebTransport backend could be added later without changing the message model.
+WebTransport (HTTP/3/QUIC, multiple independent streams, no head-of-line blocking) is the documented future upgrade path for the transport. It is **not implemented**: it was planned as a future option rather than a v1 requirement. The envelope protocol and bus/presence abstractions are transport-agnostic, so a WebTransport backend could be added later without changing the message model.
 
-### Reliability (per the build guide)
+### Reliability
 
 - **Heartbeats** — native WebSocket ping/pong; connections that miss too many pongs are terminated.
 - **Rate limiting** — token bucket (capacity 20, refill 10/s) per connection; `resume` is exempt.
@@ -127,4 +150,4 @@ See [ROADMAP.md](./ROADMAP.md) for planned future additions (accounts, UX polish
 
 - No accounts yet — identity is a display name + session token; two users with the same name can still collide in DMs.
 - Room membership is in-memory and re-derived on reconnect; message history is durable.
-- Single-node by default — the Redis fan-out/presence layers (guide steps 13–15) are wired up and checked offline, but not yet run against a real Redis server, and off unless `FANOUT_MODE` is set, keeping local dev dependency-free.
+- Single-node by default — the Redis fan-out/presence layers (steps 13–15) are wired up and checked offline, but not yet run against a real Redis server, and off unless `FANOUT_MODE` is set, keeping local dev dependency-free.

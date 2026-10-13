@@ -1,7 +1,7 @@
 {
   "name": "whisperv2",
   "version": "2.0.0",
-  "description": "Real-time instant messaging web app built on raw WebSockets (no Socket.IO), following the build guide step by step",
+  "description": "Real-time instant messaging web app built on raw WebSockets (no Socket.IO), built in 16 ordered steps",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

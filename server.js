@@ -1,7 +1,7 @@
 'use strict';
 
 // Whisper v2 — real-time instant messaging on RAW WebSockets (no Socket.IO).
-// Built step-by-step per instant-messaging-app-build-guide.txt.
+// Built in 16 ordered steps (README "Build order"); STEP n comments mark each one.
 //
 //   STEP 1  WebSocket server (ws) — bare connection, echo-capable
 //   STEP 2  Message envelope { id, type, room, payload, ts } + ULID ids
@@ -17,7 +17,7 @@
 //   STEP 12 Per-socket token-bucket rate limiting
 //   STEP 13 Pub/sub fanout bus (pluggable: in-memory default, Redis optional)
 //   STEP 14 Presence in a shared store (in-memory default, Redis TTL optional)
-//   STEP 15 Durable fanout via Redis Streams (optional, FANOUT_MODE=streams)
+//   STEP 15 Fanout via Redis Streams (optional, FANOUT_MODE=streams)
 //   STEP 16 WebTransport (HTTP/3/QUIC) — documented future upgrade path
 
 const express = require('express');
@@ -81,6 +81,11 @@ function ensureDmRoom(a, b, nameA, nameB) {
   const id = dmRoomKey(a, b);
   if (!rooms.has(id)) rooms.set(id, { id, name: 'DM', kind: 'dm', members: new Set(), names: [nameA, nameB] });
   return id;
+}
+// DMs are private: only the two parties (recorded in room.names) may join or
+// resume them. Group rooms are open to anyone.
+function mayJoin(st, room) {
+  return room.kind !== 'dm' || (room.names || []).includes(st.name);
 }
 function onlineNames() {
   // STEP 14: presence comes from the shared store (in-memory or Redis).
@@ -146,9 +151,9 @@ function ensureRoomHandler(roomId) {
 function sendToRoom(roomId, env, critical = true) {
   ensureRoomHandler(roomId);
   // STEP 15: wait for the room's subscription to be established before
-  // publishing. For RedisStreamBus, subscribe() creates the stream
-  // (xgroupCreate MKSTREAM) while publish() uses NOMKSTREAM, so publishing
-  // first can race ahead of stream creation and drop the very first message.
+  // publishing. RedisStreamBus.subscribe() records the stream's current last
+  // entry id as its read position; publishing first would land the message
+  // before that position and this instance would never deliver it.
   Promise.resolve(bus.ready(roomId))
     .then(() => bus.publish(roomId, { env, critical }))
     .catch((e) => console.error('bus publish error', e));
@@ -270,7 +275,7 @@ function handleResume(st, p) {
   for (const roomId of roomIds) {
     if (roomId === LOBBY) continue;
     const room = rooms.get(roomId);
-    if (!room) continue;
+    if (!room || !mayJoin(st, room)) continue;
     // Re-attach this socket to the room (membership was lost on disconnect).
     if (!st.rooms.has(roomId)) {
       st.rooms.add(roomId);
@@ -300,9 +305,8 @@ function handleCreateRoom(st, p) {
 function handleJoinRoom(st, p) {
   const room = rooms.get(p.roomId);
   if (!room) return send(st, envelope('error', null, { error: 'Room not found' }));
-  // DMs are private: only the two parties (recorded in room.names) may join.
-  // This stops a user from joining someone else's DM by guessing its ID.
-  if (room.kind === 'dm' && !(room.names || []).includes(st.name)) {
+  // Stops a user from joining someone else's DM by guessing its ID.
+  if (!mayJoin(st, room)) {
     return send(st, envelope('error', null, { error: 'Not a member of this DM' }));
   }
   if (!st.rooms.has(room.id)) {
@@ -348,6 +352,7 @@ function handleDmOpen(st, p) {
 function handleMessage(st, p) {
   const room = rooms.get(p.roomId);
   if (!room) return send(st, envelope('error', null, { error: 'Room not found' }));
+  if (!st.rooms.has(room.id)) return send(st, envelope('error', null, { error: 'Not a member of this room' }));
   const text = String(p.text || '').trim().slice(0, 2000);
   if (!text) return;
   const msg = { id: ulid(), roomId: room.id, sender: st.name, text, ts: Date.now() };
@@ -357,7 +362,7 @@ function handleMessage(st, p) {
 
 function handleTyping(st, p) {
   const room = rooms.get(p.roomId);
-  if (!room) return;
+  if (!room || !st.rooms.has(room.id)) return;
   // STEP 11: typing is non-critical — dropped under backpressure
   sendToRoom(room.id, envelope('typing', room.id, { roomId: room.id, name: st.name, typing: !!p.typing }), false);
 }
@@ -366,6 +371,7 @@ function handleTyping(st, p) {
 function handleHistory(st, p) {
   const room = rooms.get(p.roomId);
   if (!room) return send(st, envelope('error', null, { error: 'Room not found' }));
+  if (!st.rooms.has(room.id)) return send(st, envelope('error', null, { error: 'Not a member of this room' }));
   const beforeId = String(p.beforeId || '');
   const msgs = beforeId
     ? store.messagesBefore(room.id, beforeId, PAGE_LIMIT)

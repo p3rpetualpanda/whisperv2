@@ -58,8 +58,8 @@ Ideas for future additions, roughly ordered by priority. Each item notes what it
 - [x] **Resumable reconnection** — client exponential backoff + jitter, then `resume` with per-room `lastSeen` cursors replays missed messages.
 - [ ] **Structured logging** — replace console noise with leveled logs (pino/winston).
 - [ ] **Health endpoint** — `GET /healthz` for uptime monitoring.
-- [x] **Horizontal scaling** — fan-out + presence abstracted behind `lib/bus.js` / `lib/presence.js` (guide steps 13–15). Zero-dep in-memory default; `FANOUT_MODE=redis|streams` + `REDIS_URL` switches to Redis Pub/Sub or Streams for multi-instance. *Wired and tested, off by default.*
-- [ ] **WebTransport transport** — HTTP/3/QUIC backend (guide step 16). *Documented future upgrade path, not a v1 requirement; protocol + bus/presence are already transport-agnostic.*
+- [x] **Horizontal scaling** — fan-out + presence abstracted behind `lib/bus.js` / `lib/presence.js` (build steps 13–15, see README). Zero-dep in-memory default; `FANOUT_MODE=redis|streams` + `REDIS_URL` switches to Redis Pub/Sub or Streams for multi-instance. *Wired and tested, off by default.*
+- [ ] **WebTransport transport** — HTTP/3/QUIC backend (build step 16). *Documented future upgrade path, not a v1 requirement; protocol + bus/presence are already transport-agnostic.*
 - [x] **Config via env** — `PORT`, `DB_PATH`, `FANOUT_MODE`, `REDIS_URL`, and rate-limit/backpressure constants are env/configurable.
 
 ## 7. Encryption & security

@@ -230,6 +230,18 @@ const globalTimeout = setTimeout(() => {
   check('history-on-join includes seeded messages', histTexts.includes('hist-1') && histTexts.includes('hist-2'));
   check('history is oldest->newest', histTexts.indexOf('hist-1') < histTexts.indexOf('hist-2'));
 
+  // ---------- 10b. Access control: Carol is not in Alice/Bob's DM ----------
+  carol.send('message', { roomId: dmRoomId, text: 'intrude' });
+  const postErr = await carol.waitFor((e) => e.type === 'error');
+  check('non-member cannot post to DM', /Not a member/.test(postErr.payload.error));
+  carol.send('history', { roomId: dmRoomId });
+  const histErr = await carol.waitFor((e) => e.type === 'error' && e !== postErr);
+  check('non-member cannot read DM history', /Not a member/.test(histErr.payload.error));
+  carol.send('resume', { rooms: [dmRoomId], lastSeen: {} });
+  await carol.waitFor((e) => e.type === 'resumed');
+  const leaked = carol.queue.some((e) => e.type === 'message' && e.payload.msg.roomId === dmRoomId);
+  check('resume does not join a DM you are not in', !leaked);
+
   // ---------- 11. Resumable reconnect (STEP 8) ----------
   // Bob's last-seen id in the group room:
   const bobLastSeen = msg.payload.msg.id; // 'Hello Bob!'
@@ -238,16 +250,19 @@ const globalTimeout = setTimeout(() => {
   // Alice sends two more while Bob is away.
   alice.send('message', { roomId, text: 'away-1' });
   alice.send('message', { roomId, text: 'away-2' });
+  alice.send('message', { roomId: dmRoomId, text: 'dm-away' });
   await sleep(150);
 
   // Bob reconnects with the same session token and resumes.
   const bob2 = await new Client(sb.token).connect();
-  bob2.send('resume', { rooms: [roomId], lastSeen: { [roomId]: bobLastSeen } });
+  bob2.send('resume', { rooms: [roomId, dmRoomId], lastSeen: { [roomId]: bobLastSeen, [dmRoomId]: dm2.payload.msg.id } });
   const resumed = await bob2.waitFor((e) => e.type === 'resumed');
   check('resume reports replayed count', resumed.payload.count >= 2);
   // Verify the replayed messages are the ones sent while away.
   const replayed = bob2.queue.filter((e) => e.type === 'message' && e.payload.msg.roomId === roomId).map((e) => e.payload.msg.text);
   check('resume replayed missed messages', replayed.includes('away-1') && replayed.includes('away-2'));
+  const replayedDm = bob2.queue.filter((e) => e.type === 'message' && e.payload.msg.roomId === dmRoomId).map((e) => e.payload.msg.text);
+  check('DM party can resume into their own DM', replayedDm.length === 1 && replayedDm[0] === 'dm-away');
 
   // ---------- 12. Rate limiting (STEP 12) ----------
   const rl = await new Client(sa.token).connect();
